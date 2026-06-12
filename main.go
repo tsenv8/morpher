@@ -18,8 +18,9 @@ import (
 )
 
 type MorphRequestBody struct {
-	Count int
-	Body  map[string]any
+	Count    int
+	FileName string
+	Body     map[string]any
 }
 
 type CsvBody struct {
@@ -83,6 +84,7 @@ func InitCsv(w http.ResponseWriter, r *http.Request) {
 	request, err := getRequestBody(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
+		return
 	}
 
 	csvResults := [][]string{}
@@ -95,6 +97,7 @@ func InitCsv(w http.ResponseWriter, r *http.Request) {
 	for key, _ := range request.Body {
 		headers = append(headers, key)
 	}
+
 	sort.Strings(headers)
 	csvResults = append(csvResults, headers)
 	//then append the items
@@ -107,9 +110,7 @@ func InitCsv(w http.ResponseWriter, r *http.Request) {
 		csvResults = append(csvResults, csvRow)
 	}
 
-	generateCSV(csvResults)
-
-	// sendResponse(csvResults, w)
+	generateCSV(csvResults, request)
 }
 
 func Init(w http.ResponseWriter, r *http.Request) {
@@ -170,14 +171,20 @@ func getRequestBody(w http.ResponseWriter, r *http.Request) (*MorphRequestBody, 
 	}
 	count := int(countVal)
 
+	fileName, ok := requestData["fileName"].(string)
+	if !ok {
+		return nil, fmt.Errorf("Invalid Name")
+	}
+
 	body, ok := requestData["body"].(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("Invalid Count")
+		return nil, fmt.Errorf("Invalid Body")
 	}
 
 	morphRequest := MorphRequestBody{
-		Count: count,
-		Body:  body,
+		Count:    count,
+		FileName: fileName,
+		Body:     body,
 	}
 
 	return &morphRequest, nil
@@ -230,6 +237,23 @@ func createFakeCsvEntry(body map[string]any, sortedHeaders []string) ([]string, 
 				continue
 			}
 
+			if strings.HasPrefix(keywordValue, "daterange:") {
+				listStr := keywordValue[len("daterange:"):]
+				options := strings.Split(listStr, ",")
+				layout := "2006-01-02"
+				startStr, err := time.Parse(layout, options[0])
+				if err != nil {
+					return nil, fmt.Errorf("Invalid date range")
+				}
+
+				endStr, err := time.Parse(layout, options[1])
+				if err != nil {
+					return nil, fmt.Errorf("Invalid date range")
+				}
+				drange := gofakeit.DateRange(startStr, endStr)
+				fakeData = append(fakeData, drange.String())
+			}
+
 			// Custom Key Parsing (e.g., "FirstName", "Email")
 			fakeValue, err := parseKey(keywordValue)
 			if err != nil {
@@ -280,6 +304,23 @@ func createFake(body map[string]any) (map[string]any, error) {
 				continue
 			}
 
+			if strings.HasPrefix(keywordValue, "daterange:") {
+				listStr := keywordValue[len("daterange:"):]
+				options := strings.Split(listStr, ",")
+				layout := "2006-01-02"
+				startStr, err := time.Parse(layout, options[0])
+				if err != nil {
+					return nil, fmt.Errorf("Invalid date range")
+				}
+
+				endStr, err := time.Parse(layout, options[1])
+				if err != nil {
+					return nil, fmt.Errorf("Invalid date range")
+				}
+
+				fakeData[k] = gofakeit.DateRange(startStr, endStr).String()
+			}
+
 			fakeValue, err := parseKey(keywordValue)
 			if err != nil {
 				return nil, fmt.Errorf("Keyword %s is not supported", keywordValue)
@@ -328,31 +369,22 @@ func lookup() map[string]LookupRowShort {
 	return lookups
 }
 
-func generateCSV(csvData [][]string) {
+func generateCSV(csvData [][]string, request *MorphRequestBody) {
 	// 1. Create the file
-	file, err := os.Create(time.Now().String() + ".csv")
+	file, err := os.Create(request.FileName + ".csv")
 	if err != nil {
 		fmt.Println("Error creating file:", err)
 		return
 	}
 	defer file.Close()
 
-	// 2. Initialize the CSV writer
 	csvWriter := csv.NewWriter(file)
-	defer csvWriter.Flush() // Flush writes any buffered data to the file
-
-	// 3. Define your data
-	// data := [][]string{
-	// 	{"Name", "Age", "City"}, // Header
-	// 	{"Alice", "30", "New York"},
-	// 	{"Bob", "25", "Los Angeles"},
-	// 	{"Charlie", "35", "Chicago"},
-	// }
+	defer csvWriter.Flush()
 
 	// 4. Write all data at once
 	if err := csvWriter.WriteAll(csvData); err != nil {
 		fmt.Println("Error writing to csv:", err)
 	}
 
-	fmt.Println("CSV file created successfully!")
+	fmt.Printf("\nCSV file ( %s ) created successfully!", request.FileName)
 }
